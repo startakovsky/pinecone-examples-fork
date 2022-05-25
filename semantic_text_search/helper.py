@@ -1,5 +1,6 @@
 import os
-import itertools 
+import itertools
+import re
 
 from IPython.display import display, Markdown
 import numpy as np
@@ -62,10 +63,17 @@ def get_processed_domain(df_row, sources):
     return domain if domain in sources else 'other'
 
 
+def get_text_prefix(text, num_fragments_to_keep=5):
+    """Return an abridged version of text."""
+    fragmented_text = re.split(r'(?<=[.:;])\s', text)
+    abridged_text = " ".join(fragmented_text[:num_fragments_to_keep])
+    return abridged_text
+
+
 def get_processed_df(df):
     """Return processed dataframe ready for usage."""
-    # rename columns to conventional lowercase naming with no space
-    df = df.rename(columns={'text': 'text_to_encode'})
+    # keep first few sentences
+    df['text_to_encode'] = df.title + ' ' + df.text.apply(get_text_prefix)
     # parse date
     df.date = pd.to_datetime(df.date)
     df['year'] = df.date.dt.strftime('%Y').fillna(-1).astype(int)
