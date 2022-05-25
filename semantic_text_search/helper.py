@@ -35,7 +35,7 @@ def set_pinecone_api_key():
     pinecone_api_key = os.getenv(ENVIRONMENTAL_VARIABLE_NAME)
     if not pinecone_api_key:
         printmd(api_key_prompt)
-        pinecone_api_key = getpass.getpass(api_key_prompt)
+        pinecone_api_key = getpass.getpass('')
     printmd('Pinecone API Key available at `h.pinecone_api_key`')
 
 
