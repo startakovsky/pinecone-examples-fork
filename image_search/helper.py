@@ -80,6 +80,7 @@ def show_random_images_from_full_dataset(dset, num_rows=4, num_cols=8):
     for ax, im_array, label in zip(grid, im_arrays, labels):
         ax.imshow(im_array)
         ax.set_title(label)
+        ax.axis("off")
 
 
 def get_tqdm_kwargs(dataloader):
@@ -118,8 +119,10 @@ def show_response_as_grid(response, datasets, nrows, ncols, **subplot_kwargs):
     for dataset_name, row, score, metadata, ax in iter_images:
         result_array = datasets[dataset_name].data[row]
         ax.imshow(result_array)
-        ax.set_xlabel(f'score: {score:.4}')
-        ax.set_title(f'{dataset_name}, {metadata["label"]}')
+        ax.set_title(
+            f'{dataset_name}: {metadata["label"]}\nsimilarity: {score:.4}'
+        )
+        ax.axis("off")
 
 
 def run_on_module_import():
