@@ -1,12 +1,24 @@
+"""Helper module for Pinecone's image search example"""
+
 import os
 import itertools
 import re
 import getpass
+import random
 
 from IPython.display import display, Markdown
 import numpy as np
-import pandas as pd
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
 import seaborn as sns
+
+from torchvision.transforms import (
+    Compose, 
+    Resize, 
+    CenterCrop, 
+    ToTensor, 
+    Normalize
+)
 
 
 ENVIRONMENTAL_VARIABLE_NAME = 'PINECONE_EXAMPLE_API_KEY'
@@ -25,6 +37,9 @@ PINECONE_PALETTE = [
 pinecone_api_key = None
 
 
+printmd = lambda x: display(Markdown(x))
+
+
 def set_pinecone_api_key():
     global pinecone_api_key
     api_key_prompt = (
@@ -39,84 +54,79 @@ def set_pinecone_api_key():
     printmd('Pinecone API Key available at `h.pinecone_api_key`')
 
 
-printmd = lambda x: display(Markdown(x))
+preprocess = Compose([
+    Resize(256),
+    CenterCrop(224),
+    ToTensor(),
+    Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
 
 
-def chunks(lst, n):
-    """A generator function that iterates through lst in batches.
+def show_random_images_from_full_dataset(dset, num_rows=4, num_cols=8):
+    """Show random sample of images in PyTorch dataset."""
     
-    Each batch is of size n except possibly the last batch, which may be of 
-    size less than n.
-    """
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
+    ### get random sample of images and labels
+    indices = np.random.randint(0, high=len(dset)+1, size=num_rows*num_cols)
+    im_arrays = np.take(dset.data, indices, axis=0)
+    labels = map(dset.classes.__getitem__, np.take(dset.targets, indices))
+
+    ### plot sample
+    fig = plt.figure(figsize=(20, 20))
+    grid = ImageGrid(
+        fig, 
+        111,
+        nrows_ncols=(num_rows, num_cols),
+        axes_pad=0.3)
+    for ax, im_array, label in zip(grid, im_arrays, labels):
+        ax.imshow(im_array)
+        ax.set_title(label)
 
 
-def get_top_sources(dataframe, n=20):
-    """Return an iterable with the top n most frequent domains."""
-    sources = dataframe.domain.value_counts().head(n).index.tolist()
-    return sources
-
-
-def get_processed_domain(df_row, sources):
-    """Return metadata for top sources."""
-    domain = df_row['domain']
-    return domain if domain in sources else 'other'
-
-
-def get_text_prefix(text, num_fragments_to_keep=5):
-    """Return an abridged version of text."""
-    fragmented_text = re.split(r'(?<=[.:;])\s', text)
-    abridged_text = " ".join(fragmented_text[:num_fragments_to_keep])
-    return abridged_text
-
-
-def get_processed_df(df):
-    """Return processed dataframe ready for usage."""
-    # keep first few sentences
-    df['text_to_encode'] = df.title + ' ' + df.text.apply(get_text_prefix)
-    # parse date
-    df.date = pd.to_datetime(df.date)
-    df['year'] = df.date.dt.strftime('%Y').fillna(-1).astype(int)
-    df['month'] = df.date.dt.strftime('%m').fillna(-1).astype(int)
-    # Process domain (keeping top 20 and labeling the rest as 'other')
-    sources = get_top_sources(df)
-    df['processed_domain'] = df.apply(
-        get_processed_domain, 
-        axis=1, 
-        args=(sources,)
-    )
-    # prepare index as string
-    df.index = df.index.map(str)
-    df.index.name = 'vector_id'
-    return df
-
-
-def get_tqdm_kwargs(dataframe, chunksize):
+def get_tqdm_kwargs(dataloader):
+    batch_size, total_samples = dataloader.batch_size, len(dataloader.dataset)
     return dict(
         smoothing=0, 
-        unit='chunk of vectors', 
-        total=int(np.ceil(len(dataframe)/chunksize))
+        unit=f'chunk of {batch_size} '
+             f'{dataloader.dataset.__class__.__name__} vectors',
+        total=int(np.ceil(total_samples/batch_size))
     )
 
 
-def get_ids_scores(response):
+def _get_ids_scores_metadatas(response):
     """Return ids and scores from Pinecone query response."""
     matches = response['results'][0]['matches']
-    ids, scores = zip(*[(match['id'], match['score']) for match in matches])
-    return list(ids), list(scores)
+    ids, scores, metadatas = zip(*[(
+        match['id'], 
+        match['score'], 
+        match['metadata']
+    ) for match in matches])
+    return list(ids), list(scores), list(metadatas)
 
 
-def make_clickable(val):
-    # target _blank to open new window
-    return f'<a target="_blank" href="{val}">link</a>'
+def get_response_information(response):
+    """Return dataset, ids, and scores from Pinecone query response."""
+    ids, scores, metadatas = _get_ids_scores_metadatas(response)
+    datasets, rows = list(zip(*[id_.split('.') for id_ in ids]))
+    return datasets, map(int, rows), scores, metadatas
+
+
+def show_response_as_grid(response, datasets, nrows, ncols, **subplot_kwargs):
+    fig, axes = plt.subplots(nrows, ncols, **subplot_kwargs)
+    fig.tight_layout()
+    iter_response = get_response_information(response)
+    iter_images = zip(*[*iter_response, axes.flat])
+    for dataset_name, row, score, metadata, ax in iter_images:
+        result_array = datasets[dataset_name].data[row]
+        ax.imshow(result_array)
+        ax.set_xlabel(f'score: {score:.4}')
+        ax.set_title(f'{dataset_name}, {metadata["label"]}')
 
 
 def run_on_module_import():
     sns.set_palette(PINECONE_PALETTE)
     set_pinecone_api_key()
-    pd.set_option('display.max_colwidth', 2000)
+    import warnings
+    warnings.filterwarnings('ignore')
 
 
 run_on_module_import()
-
